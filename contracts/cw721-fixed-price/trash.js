@@ -1,0 +1,5 @@
+'{"max_tokens":100, "name":"FractTest", "owner":"xion107a8upgagz9uah8vpd8plf0md8mj2cqjac0drg", "symbol":"FIT", "token_code_id": 809, "token_uri": "https://gateway.pinata.cloud/ipfs/QmeHMsJvq6zETgvC43PHPqiETts4Fm9pvhJVB1h7gk6P3h", "unit_price": "1","withdraw_address":"xion1k0u59thmp937x6j5rtxua3gqzmldjfrtcgve9n"}'
+NFTINFO='{"nft_info":{"token_id":"0"}}'
+TOKENS='{"tokens":{"owner":"xion1hga5csklsahpkk07zqrcgdxkgfsrqt55yjkmzt"}}'
+WITHDRAW='{"withdraw_funds": {"amount":1,"denom":"ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64"}}'
+WITHDRAW='{"withdraw_funds":{"amount":{"denom":"ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64","amount":"1"}}}'
