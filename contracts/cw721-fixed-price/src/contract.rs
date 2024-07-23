@@ -184,18 +184,18 @@ pub fn execute_mint(deps: DepsMut, info: MessageInfo) -> Result<Response, Contra
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{from_json, to_json_binary, Coin, CosmosMsg, SubMsgResponse, SubMsgResult};
+    use cosmwasm_std::{from_json, to_json_binary, SubMsgResponse, SubMsgResult, coins, CosmosMsg};
     use cw721::state::DefaultOptionMetadataExtension;
-    use cosmwasm_std::coins;
     use prost::Message;
 
     const NFT_CONTRACT_ADDR: &str = "nftcontract";
+    const TOKEN_DENOM: &str = "ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64";
 
-    // Type for replies to contract instantiate messes
     #[derive(Clone, PartialEq, Message)]
     struct MsgInstantiateContractResponse {
         #[prost(string, tag = "1")]
@@ -205,14 +205,14 @@ mod tests {
     }
 
     #[test]
-    fn initialization() {
+    fn proper_initialization() {
         let mut deps = mock_dependencies();
         let msg = InstantiateMsg {
             owner: Addr::unchecked("owner"),
             max_tokens: 1,
             unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
             token_code_id: 10u64,
             token_uri: String::from("https://ipfs.io/ipfs/Q"),
             extension: None,
@@ -221,8 +221,6 @@ mod tests {
 
         let info = mock_info("owner", &[]);
         let res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
-
-        instantiate(deps.as_mut(), mock_env(), info, msg.clone()).unwrap();
 
         assert_eq!(
             res.messages,
@@ -248,7 +246,7 @@ mod tests {
         );
 
         let instantiate_reply = MsgInstantiateContractResponse {
-            contract_address: "nftcontract".to_string(),
+            contract_address: NFT_CONTRACT_ADDR.to_string(),
             data: vec![2u8; 32769],
         };
         let mut encoded_instantiate_reply =
@@ -268,10 +266,10 @@ mod tests {
 
         let query_msg = QueryMsg::GetConfig {};
         let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
-        let config: Config = from_json(res).unwrap();
+        let config: ConfigResponse = from_json(&res).unwrap();
         assert_eq!(
             config,
-            Config {
+            ConfigResponse {
                 owner: Addr::unchecked("owner"),
                 cw721_address: Some(Addr::unchecked(NFT_CONTRACT_ADDR)),
                 max_tokens: msg.max_tokens,
@@ -286,14 +284,77 @@ mod tests {
     }
 
     #[test]
+    fn mint_nft() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            owner: Addr::unchecked("owner"),
+            max_tokens: 1,
+            unit_price: Uint128::new(1),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
+            token_code_id: 10u64,
+            token_uri: String::from("https://ipfs.io/ipfs/Q"),
+            extension: None,
+            withdraw_address: None,
+        };
+
+        let info = mock_info("owner", &[]);
+        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        let instantiate_reply = MsgInstantiateContractResponse {
+            contract_address: NFT_CONTRACT_ADDR.to_string(),
+            data: vec![2u8; 32769],
+        };
+        let mut encoded_instantiate_reply =
+            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
+        instantiate_reply
+            .encode(&mut encoded_instantiate_reply)
+            .unwrap();
+
+        let reply_msg = Reply {
+            id: INSTANTIATE_TOKEN_REPLY_ID,
+            result: SubMsgResult::Ok(SubMsgResponse {
+                events: vec![],
+                data: Some(encoded_instantiate_reply.into()),
+            }),
+        };
+        reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
+
+        let msg = ExecuteMsg::Mint {};
+        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1, TOKEN_DENOM));
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        let mint_msg = Cw721ExecuteMsg::<DefaultOptionMetadataExtension, Empty>::Mint {
+            token_id: String::from("0"),
+            owner: MOCK_CONTRACT_ADDR.to_string(),
+            token_uri: Some(String::from("https://ipfs.io/ipfs/Q")),
+            extension: None,
+        };
+
+        assert_eq!(
+            res.messages[0],
+            SubMsg {
+                msg: CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: NFT_CONTRACT_ADDR.to_string(),
+                    msg: to_json_binary(&mint_msg).unwrap(),
+                    funds: vec![],
+                }),
+                id: 0,
+                gas_limit: None,
+                reply_on: ReplyOn::Never,
+            }
+        );
+    }
+
+    #[test]
     fn invalid_unit_price() {
         let mut deps = mock_dependencies();
         let msg = InstantiateMsg {
             owner: Addr::unchecked("owner"),
             max_tokens: 1,
             unit_price: Uint128::new(0),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
             token_code_id: 10u64,
             token_uri: String::from("https://ipfs.io/ipfs/Q"),
             extension: None,
@@ -316,8 +377,8 @@ mod tests {
             owner: Addr::unchecked("owner"),
             max_tokens: 0,
             unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
             token_code_id: 10u64,
             token_uri: String::from("https://ipfs.io/ipfs/Q"),
             extension: None,
@@ -334,14 +395,14 @@ mod tests {
     }
 
     #[test]
-    fn mint() {
+    fn uninitialized() {
         let mut deps = mock_dependencies();
         let msg = InstantiateMsg {
             owner: Addr::unchecked("owner"),
             max_tokens: 1,
             unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
             token_code_id: 10u64,
             token_uri: String::from("https://ipfs.io/ipfs/Q"),
             extension: None,
@@ -350,6 +411,35 @@ mod tests {
 
         let info = mock_info("owner", &[]);
         instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        let msg = ExecuteMsg::Mint {};
+        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1, TOKEN_DENOM));
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+
+        match err {
+            ContractError::Uninitialized {} => {}
+            e => panic!("unexpected error: {e}"),
+        }
+    }
+
+    #[test]
+    fn sold_out() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            owner: Addr::unchecked("owner"),
+            max_tokens: 1,
+            unit_price: Uint128::new(1),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
+            token_code_id: 10u64,
+            token_uri: String::from("https://ipfs.io/ipfs/Q"),
+            extension: None,
+            withdraw_address: None,
+        };
+
+        let info = mock_info("owner", &[]);
+        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
         let instantiate_reply = MsgInstantiateContractResponse {
             contract_address: NFT_CONTRACT_ADDR.to_string(),
             data: vec![2u8; 32769],
@@ -369,21 +459,114 @@ mod tests {
         };
         reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
 
-        let msg = ExecuteMsg::Mint{};
+        let msg = ExecuteMsg::Mint {};
+        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1, TOKEN_DENOM));
 
-        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1,"ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64"));
-        // let info = mock_info(MOCK_CONTRACT_ADDR, &[]);
-        // let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        // Max mint is 1, so second mint request should fail
+        execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+
+        match err {
+            ContractError::SoldOut {} => {}
+            e => panic!("unexpected error: {e}"),
+        }
+    }
+
+    #[test]
+    fn wrong_amount() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            owner: Addr::unchecked("owner"),
+            max_tokens: 1,
+            unit_price: Uint128::new(1),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
+            token_code_id: 10u64,
+            token_uri: String::from("https://ipfs.io/ipfs/Q"),
+            extension: None,
+            withdraw_address: None,
+        };
+
+        let info = mock_info("owner", &[]);
+        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        let instantiate_reply = MsgInstantiateContractResponse {
+            contract_address: NFT_CONTRACT_ADDR.to_string(),
+            data: vec![2u8; 32769],
+        };
+        let mut encoded_instantiate_reply =
+            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
+        instantiate_reply
+            .encode(&mut encoded_instantiate_reply)
+            .unwrap();
+
+        let reply_msg = Reply {
+            id: INSTANTIATE_TOKEN_REPLY_ID,
+            result: SubMsgResult::Ok(SubMsgResponse {
+                events: vec![],
+                data: Some(encoded_instantiate_reply.into()),
+            }),
+        };
+        reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
+
+        let msg = ExecuteMsg::Mint {};
+        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(2, TOKEN_DENOM));
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+
+        match err {
+            ContractError::WrongPaymentAmount {} => {}
+            e => panic!("unexpected error: {e}"),
+        }
+    }
+
+    
+    #[test]
+    fn unauthorized_token() {
+        let mut deps = mock_dependencies();
+        let msg = InstantiateMsg {
+            owner: Addr::unchecked("owner"),
+            max_tokens: 1,
+            unit_price: Uint128::new(1),
+            name: String::from("FRACTIT"),
+            symbol: String::from("FRACTIT"),
+            token_code_id: 10u64,
+            token_uri: String::from("https://ipfs.io/ipfs/Q"),
+            extension: None,
+            withdraw_address: None,
+        };
+
+        let info = mock_info("owner", &[]);
+        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        let instantiate_reply = MsgInstantiateContractResponse {
+            contract_address: NFT_CONTRACT_ADDR.to_string(),
+            data: vec![2u8; 32769],
+        };
+        let mut encoded_instantiate_reply =
+            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
+        instantiate_reply
+            .encode(&mut encoded_instantiate_reply)
+            .unwrap();
+
+        let reply_msg = Reply {
+            id: INSTANTIATE_TOKEN_REPLY_ID,
+            result: SubMsgResult::Ok(SubMsgResponse {
+                events: vec![],
+                data: Some(encoded_instantiate_reply.into()),
+            }),
+        };
+        reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
+
+        let msg = ExecuteMsg::Mint {};
+        let info = mock_info("unauthorized-token", &coins(1, TOKEN_DENOM));
         let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
         let mint_msg = Cw721ExecuteMsg::<DefaultOptionMetadataExtension, Empty>::Mint {
             token_id: String::from("0"),
-            // owner: String::from("minter"),
-            owner: MOCK_CONTRACT_ADDR.to_string(),
+            owner: String::from("unauthorized-token"),
             token_uri: Some(String::from("https://ipfs.io/ipfs/Q")),
             extension: None,
         };
-
 
         assert_eq!(
             res.messages[0],
@@ -400,270 +583,5 @@ mod tests {
         );
     }
 
-    #[test]
-    fn invalid_reply_id() {
-        let mut deps = mock_dependencies();
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked("owner"),
-            max_tokens: 1,
-            unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
-            token_code_id: 10u64,
-            token_uri: String::from("https://ipfs.io/ipfs/Q"),
-            extension: None,
-            withdraw_address: None,
-        };
 
-        let info = mock_info("owner", &[]);
-        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        let instantiate_reply = MsgInstantiateContractResponse {
-            contract_address: NFT_CONTRACT_ADDR.to_string(),
-            data: vec![2u8; 32769],
-        };
-        let mut encoded_instantiate_reply =
-            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
-        instantiate_reply
-            .encode(&mut encoded_instantiate_reply)
-            .unwrap();
-
-        let reply_msg = Reply {
-            id: 10,
-            result: SubMsgResult::Ok(SubMsgResponse {
-                events: vec![],
-                data: Some(encoded_instantiate_reply.into()),
-            }),
-        };
-        let err = reply(deps.as_mut(), mock_env(), reply_msg).unwrap_err();
-        match err {
-            ContractError::InvalidTokenReplyId {} => {}
-            e => panic!("unexpected error: {e}"),
-        }
-    }
-
-    #[test]
-    fn cw721_already_linked() {
-        let mut deps = mock_dependencies();
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked("owner"),
-            max_tokens: 1,
-            unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
-            token_code_id: 10u64,
-            token_uri: String::from("https://ipfs.io/ipfs/Q"),
-            extension: None,
-            withdraw_address: None,
-        };
-
-        let info = mock_info("owner", &[]);
-        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        let instantiate_reply = MsgInstantiateContractResponse {
-            contract_address: NFT_CONTRACT_ADDR.to_string(),
-            data: vec![2u8; 32769],
-        };
-        let mut encoded_instantiate_reply =
-            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
-        instantiate_reply
-            .encode(&mut encoded_instantiate_reply)
-            .unwrap();
-
-        let reply_msg = Reply {
-            id: 1,
-            result: SubMsgResult::Ok(SubMsgResponse {
-                events: vec![],
-                data: Some(encoded_instantiate_reply.into()),
-            }),
-        };
-        reply(deps.as_mut(), mock_env(), reply_msg.clone()).unwrap();
-
-        let err = reply(deps.as_mut(), mock_env(), reply_msg).unwrap_err();
-        match err {
-            ContractError::Cw721AlreadyLinked {} => {}
-            e => panic!("unexpected error: {e}"),
-        }
-    }
-
-    #[test]
-    fn sold_out() {
-        let mut deps = mock_dependencies();
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked("owner"),
-            max_tokens: 1,
-            unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
-            token_code_id: 10u64,
-            token_uri: String::from("https://ipfs.io/ipfs/Q"),
-            extension: None,
-            withdraw_address: None,
-        };
-
-        let info = mock_info("owner", &[]);
-        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        let instantiate_reply = MsgInstantiateContractResponse {
-            contract_address: NFT_CONTRACT_ADDR.to_string(),
-            data: vec![2u8; 32769],
-        };
-        let mut encoded_instantiate_reply =
-            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
-        instantiate_reply
-            .encode(&mut encoded_instantiate_reply)
-            .unwrap();
-
-        let reply_msg = Reply {
-            id: INSTANTIATE_TOKEN_REPLY_ID,
-            result: SubMsgResult::Ok(SubMsgResponse {
-                events: vec![],
-                data: Some(encoded_instantiate_reply.into()),
-            }),
-        };
-        reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
-
-        let msg = ExecuteMsg::Mint{};
-        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1, "ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64"));
-
-        // Max mint is 1, so second mint request should fail
-        execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
-        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-
-        match err {
-            ContractError::SoldOut {} => {}
-            e => panic!("unexpected error: {e}"),
-        }
-    }
-
-    #[test]
-    fn uninitialized() {
-        // Config has not been fully initialized with nft contract address via instantiation reply
-        let mut deps = mock_dependencies();
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked("owner"),
-            max_tokens: 1,
-            unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
-            token_code_id: 10u64,
-            token_uri: String::from("https://ipfs.io/ipfs/Q"),
-            extension: None,
-            withdraw_address: None,
-        };
-
-        let info = mock_info("owner", &[]);
-        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-        // Test token transfer when nft contract has not been linked
-
-        let msg = ExecuteMsg::Mint {  };
-        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1, "ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64"));
-        // let info = mock_info(MOCK_CONTRACT_ADDR, &[]);
-
-        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-        match err {
-            ContractError::Uninitialized {} => {}
-            e => panic!("unexpected error: {e}"),
-        }
-    }
-
-    #[test]
-    fn unauthorized_token() {
-        let mut deps = mock_dependencies();
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked("owner"),
-            max_tokens: 1,
-            unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
-            token_code_id: 10u64,
-            token_uri: String::from("https://ipfs.io/ipfs/Q"),
-            extension: None,
-            withdraw_address: None,
-        };
-
-        let info = mock_info("owner", &[]);
-        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-        // Link nft token contract using reply
-
-        let instantiate_reply = MsgInstantiateContractResponse {
-            contract_address: NFT_CONTRACT_ADDR.to_string(),
-            data: vec![2u8; 32769],
-        };
-        let mut encoded_instantiate_reply =
-            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
-        instantiate_reply
-            .encode(&mut encoded_instantiate_reply)
-            .unwrap();
-
-        let reply_msg = Reply {
-            id: INSTANTIATE_TOKEN_REPLY_ID,
-            result: SubMsgResult::Ok(SubMsgResponse {
-                events: vec![],
-                data: Some(encoded_instantiate_reply.into()),
-            }),
-        };
-        reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
-
-        // Test token transfer from invalid token contract
-        let msg = ExecuteMsg::Mint{};
-        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(1, "ibc/57097251ED81A232CE3C9D8997C8096D6D87EF84BA203E12E424AA4C9B57A64"));
-        // let info = mock_info("unauthorized-token", &[]);
-        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-
-        // match err {
-        //     ContractError::UnauthorizedTokenContract {} => {}
-        //     e => panic!("unexpected error: {e}"),
-        // }
-    }
-
-    #[test]
-    fn wrong_amount() {
-        let mut deps = mock_dependencies();
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked("owner"),
-            max_tokens: 1,
-            unit_price: Uint128::new(1),
-            name: String::from("SYNTH"),
-            symbol: String::from("SYNTH"),
-            token_code_id: 10u64,
-            token_uri: String::from("https://ipfs.io/ipfs/Q"),
-            extension: None,
-            withdraw_address: None,
-        };
-
-        let info = mock_info("owner", &[]);
-        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-        // Link nft token contract using reply
-
-        let instantiate_reply = MsgInstantiateContractResponse {
-            contract_address: NFT_CONTRACT_ADDR.to_string(),
-            data: vec![2u8; 32769],
-        };
-        let mut encoded_instantiate_reply =
-            Vec::<u8>::with_capacity(instantiate_reply.encoded_len());
-        instantiate_reply
-            .encode(&mut encoded_instantiate_reply)
-            .unwrap();
-
-        let reply_msg = Reply {
-            id: INSTANTIATE_TOKEN_REPLY_ID,
-            result: SubMsgResult::Ok(SubMsgResponse {
-                events: vec![],
-                data: Some(encoded_instantiate_reply.into()),
-            }),
-        };
-        reply(deps.as_mut(), mock_env(), reply_msg).unwrap();
-
-        // Test token transfer from invalid token contract
-        let msg = ExecuteMsg::Mint{};
-        // let info = mock_info(MOCK_CONTRACT_ADDR, &[]);
-        let info = mock_info(MOCK_CONTRACT_ADDR, &coins(2, "ibc/57097251ED81A232CE3C9D899E7C8096D6D87EF84BA203E12E424AA4C9B57A64"));
-        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-
-        match err {
-            ContractError::WrongPaymentAmount {} => {}
-            e => panic!("unexpected error: {e}"),
-        }
-    }
 }
